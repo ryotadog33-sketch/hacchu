@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#23407a">
+<meta name="robots" content="noindex, nofollow">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="発注書">
+<title>こがね製麺所 発注書</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+/* Layout: one thumb-width column — 発注先 → 数量 → A4プレビュー, with a fixed save bar at the bottom */
+:root {
+  --bg: #f1f3f6;
+  --surface: #ffffff;
+  --ink: #1b2230;
+  --muted: #5b6474;
+  --line: #d8dde5;
+  --accent: #23407a;      /* 藍 — のれんの色 */
+  --accent-ink: #ffffff;
+  --accent-soft: #e3e9f4;
+  --warn: #9a3b1f;
+  --display: "Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", serif;
+  --body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f131a; --surface: #18202b; --ink: #e7ebf1; --muted: #9ba5b5; --line: #2b3544;
+    --accent: #93b2ea; --accent-ink: #0d1522; --accent-soft: #1e2b43; --warn: #f0a084;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f131a; --surface: #18202b; --ink: #e7ebf1; --muted: #9ba5b5; --line: #2b3544;
+  --accent: #93b2ea; --accent-ink: #0d1522; --accent-soft: #1e2b43; --warn: #f0a084;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px calc(110px + env(safe-area-inset-bottom, 0px));
+}
+.wrap { max-width: 560px; margin: 0 auto; display: grid; gap: 22px; }
+header { display: grid; gap: 2px; }
+header h1 { font-family: var(--display); font-size: 26px; margin: 0; letter-spacing: .04em; text-wrap: balance; }
+header p { margin: 0; color: var(--muted); font-size: 14px; }
+.label { font-size: 12px; font-weight: 700; color: var(--muted); letter-spacing: .08em; margin: 0 0 8px; }
+
+/* 発注先 */
+.suppliers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.sup {
+  appearance: none; border: 1.5px solid var(--line); background: var(--surface); color: var(--ink);
+  border-radius: 10px; padding: 10px 6px; font: inherit; font-size: 14px; font-weight: 700; line-height: 1.3;
+  cursor: pointer; min-height: 62px;
+}
+.sup small { display: block; font-weight: 500; color: var(--muted); font-size: 12px; }
+.sup[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+.sup[aria-pressed="true"] small { color: inherit; opacity: .85; }
+
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.field { display: grid; gap: 4px; min-width: 0; }
+.field span { font-size: 12px; color: var(--muted); font-weight: 700; }
+input[type="date"], input[type="tel"], input[type="text"], textarea, select {
+  font: inherit; color: var(--ink); background: var(--surface); border: 1.5px solid var(--line);
+  border-radius: 8px; padding: 10px; width: 100%; min-width: 0;
+}
+textarea { min-height: 70px; resize: vertical; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* 品目リスト */
+.items { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.item { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.item:first-child { border-top: 0; }
+.item.on { background: var(--accent-soft); }
+.iname { font-weight: 700; font-size: 17px; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.iname button { appearance: none; border: 0; background: none; color: var(--muted); font-size: 18px; cursor: pointer; padding: 0 4px; }
+.qty { display: grid; grid-template-columns: 44px 52px 44px 64px; align-items: center; gap: 4px; }
+.qty button {
+  appearance: none; width: 44px; height: 44px; border-radius: 50%; border: 1.5px solid var(--line);
+  background: var(--surface); color: var(--ink); font-size: 22px; font-weight: 700; cursor: pointer; line-height: 1;
+}
+.qty button.plus { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.qty input {
+  width: 52px; text-align: center; font: inherit; font-size: 22px; font-weight: 700; padding: 6px 0;
+  border: 0; background: transparent; color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.qty select { padding: 8px 4px; font-size: 14px; }
+.add { display: flex; gap: 8px; padding: 10px 12px; border-top: 1px solid var(--line); }
+.add input { flex: 1; }
+.add button, .ghost {
+  appearance: none; font: inherit; font-weight: 700; border-radius: 8px; padding: 10px 14px; cursor: pointer;
+  border: 1.5px solid var(--accent); background: transparent; color: var(--accent); white-space: nowrap;
+}
+
+/* プレビュー */
+.sheet { background: #fff; border: 1px solid var(--line); border-radius: 4px; box-shadow: 0 6px 24px rgba(20,30,50,.12); }
+.sheet img { display: block; width: 100%; height: auto; }
+.hint { font-size: 13px; color: var(--muted); margin: 8px 0 0; }
+
+.how { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.how h2 { font-size: 15px; margin: 0 0 8px; }
+.how ol { margin: 0; padding-left: 1.3em; display: grid; gap: 6px; font-size: 14px; }
+
+/* 下部の保存バー */
+.bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+  background: var(--surface); border-top: 1px solid var(--line);
+  padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(10px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+}
+.bar .in { max-width: 560px; margin: 0 auto; display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; }
+.primary {
+  appearance: none; border: 0; border-radius: 10px; padding: 14px; font: inherit; font-size: 17px; font-weight: 700;
+  background: var(--accent); color: var(--accent-ink); cursor: pointer;
+}
+.primary:disabled { opacity: .45; cursor: default; }
+.msg { font-size: 13px; color: var(--muted); text-align: center; min-height: 1.2em; margin-top: 4px; }
+.msg.err { color: var(--warn); }
+@media (prefers-reduced-motion: no-preference) { .item { transition: background .15s; } }
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+  <header>
+    <h1>発注書づくり</h1>
+    <p>こがね製麺所　数量を入れるとFAX用のA4発注書ができます</p>
+  </header>
+
+  <section>
+    <p class="label">発注先</p>
+    <div class="suppliers" id="suppliers" role="group" aria-label="発注先"></div>
+  </section>
+
+  <section class="row2">
+    <label class="field"><span>配達希望日（空欄なら載せない）</span><input type="date" id="deliv"></label>
+    <label class="field"><span>相手のFAX番号（メモ用）</span><input type="tel" id="faxno" inputmode="tel" placeholder="例 0766-00-0000"></label>
+  </section>
+
+  <section>
+    <p class="label">数量</p>
+    <div class="items" id="items"></div>
+  </section>
+
+  <label class="field"><span>備考（例：できれば21日）</span><textarea id="memo"></textarea></label>
+
+  <section>
+    <p class="label">FAXされる発注書</p>
+    <div class="sheet"><img id="preview" alt="発注書のプレビュー"></div>
+    <p class="hint" id="hint">数量0の品目は載りません。画像は長押しでも保存できます。</p>
+  </section>
+
+  <section class="how">
+    <h2>送り方</h2>
+    <ol>
+      <li>下の「PDFを保存」を押す（共有メニューが開きます）</li>
+      <li>共有先で「Brother Mobile Connect」を選ぶ</li>
+      <li>アプリのFAX送信で相手先へ送る。FAX送信が出ない機種は印刷して、プリンターからFAX</li>
+    </ol>
+  </section>
+
+  <button class="ghost" id="reset" type="button">数量をすべて0にする</button>
+</div>
+
+<div class="bar">
+  <div class="in">
+    <button class="primary" id="savePdf" type="button">PDFを保存</button>
+    <button class="ghost" id="savePng" type="button">画像</button>
+    <button class="ghost" id="copyFax" type="button">FAX番号コピー</button>
+  </div>
+  <div class="msg" id="msg" role="status"></div>
+</div>
+
+<script>
+const STORES = {
+  takaoka: {
+    name: "こがね製麺所　高岡横田本町店",
+    lines: ["〒933-0849", "富山県高岡市横田本町8-6", "TEL 0766-54-0830", "FAX 0766-54-0830"]
+  },
+  kosugi: {
+    name: "こがね製麺所　アルプラザ小杉店",
+    lines: ["〒939-0341", "富山県射水市三ケ2602　アルプラザ小杉1Fフードコート",
+            "TEL 0766-54-0830（高岡横田本町店）", "FAX 0766-54-0830（高岡横田本町店）"]
+  }
+};
+const UNITS = ["", "箱", "袋", "個", "本", "ケース", "kg"];
+const SUPPLIERS = [
+  { id: "fukushima", label: "福島鰹", sub: "高岡店", to: "福島鰹株式会社", store: "takaoka", closing: "納品お願いします。",
+    items: [["煮干し","箱",2],["昆布","箱",0],["花かつお","箱",2],["出汁パック","箱",0],["鯖のふし","箱",0]] },
+  { id: "kondo_takaoka", label: "近藤物産", sub: "高岡店", to: "近藤物産株式会社", store: "takaoka", closing: "お願いいたします。",
+    items: [["かけだし","箱",8],["出汁醤油","箱",4],["濃口醤油","箱",3],["打ち粉","",0],["天ぷら粉","",5],["みりんタイプ","",0]] },
+  { id: "kondo_kosugi", label: "近藤物産", sub: "小杉店", to: "近藤物産株式会社", store: "kosugi", closing: "お願いいたします。",
+    items: [["うどん粉","",10],["塩","",0],["かけだし","箱",0],["出汁醤油","箱",0],["濃口醤油","箱",0],["打ち粉","",5],["天ぷら粉","",0]] }
+];
+
+const KEY = "koganeHacchu.v1";
+function load() { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch (e) { return null; } }
+function persist() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+
+function tomorrowISO() {
+  const d = new Date(); d.setDate(d.getDate() + 1);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
+function freshState() {
+  const s = { current: "kondo_takaoka", data: {} };
+  for (const sp of SUPPLIERS) {
+    s.data[sp.id] = { fax: "", deliv: tomorrowISO(), memo: "",
+      items: sp.items.map(([name, unit, qty]) => ({ name, unit, qty, custom: false })) };
+  }
+  return s;
+}
+let state = load();
+if (!state || !state.data || !SUPPLIERS.every(sp => state.data[sp.id])) state = freshState();
+
+const $ = id => document.getElementById(id);
+const sup = () => SUPPLIERS.find(s => s.id === state.current);
+const cur = () => state.data[state.current];
+const WD = "日月火水木金土";
+function jpDate(d) { return (d.getMonth() + 1) + "月" + d.getDate() + "日（" + WD[d.getDay()] + "）"; }
+function parseISO(v) { if (!v) return null; const [y, m, d] = v.split("-").map(Number); return new Date(y, m - 1, d); }
+
+function renderSuppliers() {
+  $("suppliers").innerHTML = "";
+  for (const sp of SUPPLIERS) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "sup"; b.id = "sup-" + sp.id;
+    b.setAttribute("aria-pressed", String(sp.id === state.current));
+    b.textContent = sp.label;
+    const sm = document.createElement("small"); sm.textContent = sp.sub; b.appendChild(sm);
+    b.onclick = () => { state.current = sp.id; persist(); renderAll(); };
+    $("suppliers").appendChild(b);
+  }
+}
+
+function renderItems() {
+  const box = $("items"); box.innerHTML = "";
+  cur().items.forEach((it, i) => {
+    const row = document.createElement("div");
+    row.className = "item" + (it.qty > 0 ? " on" : "");
+    const nm = document.createElement("div"); nm.className = "iname";
+    const t = document.createElement("span"); t.textContent = it.name; nm.appendChild(t);
+    if (it.custom) {
+      const del = document.createElement("button"); del.type = "button"; del.textContent = "×";
+      del.setAttribute("aria-label", it.name + "を削除");
+      del.onclick = () => { cur().items.splice(i, 1); changed(true); };
+      nm.appendChild(del);
+    }
+    const q = document.createElement("div"); q.className = "qty";
+    const minus = document.createElement("button"); minus.type = "button"; minus.textContent = "−";
+    minus.setAttribute("aria-label", it.name + "を1減らす");
+    const inp = document.createElement("input"); inp.type = "text"; inp.inputMode = "numeric";
+    inp.id = "q-" + state.current + "-" + i; inp.value = it.qty; inp.setAttribute("aria-label", it.name + "の数量");
+    const plus = document.createElement("button"); plus.type = "button"; plus.className = "plus"; plus.textContent = "+";
+    plus.setAttribute("aria-label", it.name + "を1増やす");
+    const sel = document.createElement("select"); sel.id = "u-" + state.current + "-" + i; sel.setAttribute("aria-label", it.name + "の単位");
+    for (const u of UNITS) { const o = document.createElement("option"); o.value = u; o.textContent = u || "単位なし"; sel.appendChild(o); }
+    sel.value = it.unit;
+    const setQty = v => { it.qty = Math.max(0, Math.min(999, v | 0)); inp.value = it.qty; row.classList.toggle("on", it.qty > 0); changed(); };
+    minus.onclick = () => setQty(it.qty - 1);
+    plus.onclick = () => setQty(it.qty + 1);
+    inp.onfocus = () => inp.select();
+    inp.oninput = () => setQty(parseInt(inp.value.replace(/[^0-9０-９]/g, "").replace(/[０-９]/g, c => "０１２３４５６７８９".indexOf(c)), 10) || 0);
+    sel.onchange = () => { it.unit = sel.value; changed(); };
+    q.append(minus, inp, plus, sel);
+    row.append(nm, q);
+    box.appendChild(row);
+  });
+  const add = document.createElement("div"); add.className = "add";
+  const ni = document.createElement("input"); ni.type = "text"; ni.id = "newItem-" + state.current; ni.placeholder = "品目を追加（例：塩）";
+  const nb = document.createElement("button"); nb.type = "button"; nb.textContent = "追加";
+  const doAdd = () => { const v = ni.value.trim(); if (!v) return; cur().items.push({ name: v, unit: "", qty: 1, custom: true }); changed(true); };
+  nb.onclick = doAdd; ni.onkeydown = e => { if (e.key === "Enter") doAdd(); };
+  add.append(ni, nb); box.appendChild(add);
+}
+
+function renderFields() {
+  $("deliv").value = cur().deliv || "";
+  $("faxno").value = cur().fax || "";
+  $("memo").value = cur().memo || "";
+}
+
+/* ---- A4 発注書（150dpi） ---- */
+const W = 1240, H = 1754, M = 120;
+const canvas = document.createElement("canvas"); canvas.width = W; canvas.height = H;
+const G = '"Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", "Meiryo", sans-serif';
+const MIN = '"Shippori Mincho", "Hiragino Mincho ProN", "Yu Mincho", serif';
+
+function wrapText(ctx, text, maxW) {
+  const out = [];
+  for (const para of String(text).split("\n")) {
+    let line = "";
+    for (const ch of para) {
+      if (ctx.measureText(line + ch).width > maxW && line) { out.push(line); line = ch; } else line += ch;
+    }
+    out.push(line);
+  }
+  return out;
+}
+
+function lines() {
+  return cur().items.filter(it => it.qty > 0);
+}
+
+function draw() {
+  const sp = sup(), d = cur(), st = STORES[sp.store];
+  const ctx = canvas.getContext("2d");
+  ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#000"; ctx.strokeStyle = "#000"; ctx.textBaseline = "alphabetic";
+
+  ctx.font = "500 30px " + G; ctx.textAlign = "right";
+  const today = new Date();
+  ctx.fillText("発注日　" + today.getFullYear() + "年" + jpDate(today), W - M, 150);
+
+  ctx.textAlign = "center"; ctx.font = "700 72px " + MIN;
+  ctx.fillText("発 注 書", W / 2, 280);
+
+  ctx.textAlign = "left"; ctx.font = "700 56px " + G;
+  const toText = sp.to + "　御中";
+  ctx.fillText(toText, M, 420);
+  ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(M, 440); ctx.lineTo(M + ctx.measureText(toText).width, 440); ctx.stroke();
+  let y = 440;
+  if (d.fax) { ctx.font = "500 30px " + G; ctx.fillText("FAX　" + d.fax, M, y + 50); y += 50; }
+
+  ctx.font = "500 32px " + G;
+  ctx.fillText("いつもお世話になっております。下記の通り発注いたします。", M, y + 80);
+  y += 80;
+
+  const dd = parseISO(d.deliv);
+  if (dd) {
+    y += 40;
+    ctx.lineWidth = 3; ctx.strokeRect(M, y, W - 2 * M, 90);
+    ctx.font = "700 44px " + G; ctx.fillText("配達希望日　" + jpDate(dd), M + 30, y + 62);
+    y += 90;
+  }
+
+  // 表
+  y += 50;
+  const colQ = W - M - 300;
+  ctx.fillStyle = "#e6e6e6"; ctx.fillRect(M, y, W - 2 * M, 64); ctx.fillStyle = "#000";
+  ctx.font = "700 32px " + G; ctx.fillText("品名", M + 30, y + 44); ctx.fillText("数量", colQ + 30, y + 44);
+  ctx.lineWidth = 3; ctx.strokeRect(M, y, W - 2 * M, 64);
+  y += 64;
+  const rows = lines();
+  const rowH = rows.length > 8 ? 80 : 96;
+  if (!rows.length) {
+    ctx.font = "500 34px " + G; ctx.fillText("（数量が入っていません）", M + 30, y + 62);
+    ctx.strokeRect(M, y, W - 2 * M, rowH); y += rowH;
+  }
+  for (const it of rows) {
+    ctx.lineWidth = 2; ctx.strokeRect(M, y, W - 2 * M, rowH);
+    ctx.beginPath(); ctx.moveTo(colQ, y); ctx.lineTo(colQ, y + rowH); ctx.stroke();
+    ctx.font = "700 48px " + G; ctx.textAlign = "left";
+    ctx.fillText(it.name, M + 30, y + rowH / 2 + 17);
+    ctx.textAlign = "right"; ctx.font = "700 56px " + G;
+    const unitW = it.unit ? 100 : 0;
+    ctx.fillText(String(it.qty), W - M - 30 - unitW, y + rowH / 2 + 20);
+    if (it.unit) { ctx.font = "700 40px " + G; ctx.fillText(it.unit, W - M - 30, y + rowH / 2 + 16); }
+    ctx.textAlign = "left";
+    y += rowH;
+  }
+  ctx.beginPath(); ctx.moveTo(colQ, y - rowH * Math.max(rows.length, 1)); ctx.lineTo(colQ, y); ctx.stroke();
+
+  // 備考
+  if (d.memo && d.memo.trim()) {
+    y += 50;
+    ctx.font = "700 32px " + G; ctx.fillText("備考", M, y + 32);
+    ctx.font = "500 36px " + G;
+    for (const l of wrapText(ctx, d.memo.trim(), W - 2 * M - 40).slice(0, 5)) { y += 52; ctx.fillText(l, M + 20, y + 32); }
+  }
+
+  y += 100;
+  ctx.font = "700 40px " + G; ctx.fillText(sp.closing, M, y);
+
+  // 店舗
+  const blockH = 60 + st.lines.length * 44;
+  let by = H - M - blockH;
+  ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(M, by - 20); ctx.lineTo(W - M, by - 20); ctx.stroke();
+  ctx.font = "700 40px " + G; ctx.fillText(st.name, M, by + 36);
+  ctx.font = "500 30px " + G;
+  st.lines.forEach((l, i) => ctx.fillText(l, M, by + 90 + i * 44));
+}
+
+let fontsReady = false;
+async function ensureFonts() {
+  if (fontsReady || !document.fonts) return;
+  const sample = "発注書御中配達希望日品名数量備考" + SUPPLIERS.map(s => s.to + s.items.map(i => i[0]).join("")).join("")
+    + Object.values(STORES).map(s => s.name + s.lines.join("")).join("") + "0123456789月日年（）";
+  try {
+    await Promise.all([
+      document.fonts.load('700 48px "Zen Kaku Gothic New"', sample),
+      document.fonts.load('500 30px "Zen Kaku Gothic New"', sample),
+      document.fonts.load('700 72px "Shippori Mincho"', "発 注 書")
+    ]);
+  } catch (e) {}
+  fontsReady = true;
+}
+
+let timer = 0;
+function refresh() {
+  clearTimeout(timer);
+  timer = setTimeout(async () => {
+    const extra = cur().items.map(i => i.name).join("") + (cur().memo || "") + (cur().fax || "");
+    await ensureFonts();
+    if (document.fonts) { try { await document.fonts.load('700 48px "Zen Kaku Gothic New"', extra); } catch (e) {} }
+    draw();
+    $("preview").src = canvas.toDataURL("image/png");
+    $("savePdf").disabled = !lines().length;
+  }, 120);
+}
+
+function changed(rerenderList) { persist(); if (rerenderList) renderItems(); refresh(); }
+function renderAll() { renderSuppliers(); renderFields(); renderItems(); refresh(); }
+
+$("deliv").oninput = e => { cur().deliv = e.target.value; changed(); };
+$("faxno").oninput = e => { cur().fax = e.target.value; changed(); };
+$("memo").oninput = e => { cur().memo = e.target.value; changed(); };
+
+let resetArmed = false;
+$("reset").onclick = () => {
+  if (!resetArmed) { resetArmed = true; $("reset").textContent = "もう一度押すと0にします"; setTimeout(() => { resetArmed = false; $("reset").textContent = "数量をすべて0にする"; }, 3000); return; }
+  resetArmed = false; $("reset").textContent = "数量をすべて0にする";
+  cur().items.forEach(it => it.qty = 0); cur().memo = ""; renderFields(); changed(true);
+};
+
+function say(t, err) { const m = $("msg"); m.textContent = t; m.className = "msg" + (err ? " err" : ""); }
+function fileBase() {
+  const sp = sup(), t = new Date();
+  return "発注書_" + sp.label + "(" + sp.sub + ")_" + t.getFullYear() + String(t.getMonth() + 1).padStart(2, "0") + String(t.getDate()).padStart(2, "0");
+}
+
+let downloads = null;
+(async () => { try { downloads = await window.claude?.use?.("downloads"); } catch (e) { downloads = null; } })();
+
+async function saveFile(filename, data) {
+  if (!downloads) {
+    // Claudeの外（Chromeで直接開いたとき）：共有メニュー → だめならダウンロード
+    const type = filename.endsWith(".pdf") ? "application/pdf" : "image/png";
+    const file = new File([data], filename, { type });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: filename });
+        say("共有しました。");
+        return;
+      } catch (e) {
+        if (e && e.name === "AbortError") { say("共有をやめました。"); return; }
+      }
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(file); a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    say("ダウンロードしました。通知から開いて Brother Mobile Connect で送ってください。");
+    return;
+  }
+  try {
+    await downloads.save({ filename, data });
+    say("保存しました。共有先で Brother Mobile Connect を選んでください。");
+  } catch (e) {
+    if (e && e.code === "declined") say("保存をやめました。");
+    else if (e && e.code === "rate_limited") say("少し待ってからもう一度押してください。", true);
+    else say("保存できませんでした。プレビュー画像を長押しして保存してください。", true);
+  }
+}
+
+$("savePdf").onclick = async () => {
+  await ensureFonts(); draw();
+  if (!window.jspdf) { say("PDFの準備ができませんでした。「画像」で保存してください。", true); return; }
+  const pdf = new window.jspdf.jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
+  pdf.addImage(canvas.toDataURL("image/png"), "PNG", 0, 0, 210, 297);
+  await saveFile(fileBase() + ".pdf", pdf.output("blob"));
+};
+$("savePng").onclick = async () => {
+  await ensureFonts(); draw();
+  canvas.toBlob(b => { if (b) saveFile(fileBase() + ".png", b); }, "image/png");
+};
+$("copyFax").onclick = () => {
+  const n = cur().fax;
+  if (!n) { say("先に相手のFAX番号を入れてください。", true); $("faxno").focus(); return; }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(n).then(() => say("FAX番号をコピーしました：" + n), () => { $("faxno").select(); say("番号を選択しました。コピーしてください。"); });
+  } else { $("faxno").select(); say("番号を選択しました。コピーしてください。"); }
+};
+
+renderAll();
+</script>
+
+<script>
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+</script>
+</body>
+</html>
